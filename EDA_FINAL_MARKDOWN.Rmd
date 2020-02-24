@@ -1,0 +1,526 @@
+---
+title: "United States Land Use 1945 - 2012"
+author: "Chris Bucher, Xiaoxiang Chen, Albert Gustafson, Brady Kraemer, and Sam Ransohoff"
+date: "11/27/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "~/Downloads")
+```
+
+'''{r setup, include = FALSE}
+
+
+<br />
+
+# Introduction
+
+### Research Question
+* How has land use in the United States changed over time? 
+  + Technological advances
+  + Labor force inconsistencies
+  + Growing populations
+    + Increased food demand
+
+### What happened to all the farmers?
+
+* Between 1948 and 2015, total farm output has more than doubled in the United States. (USDA) 
+* What about the productivity of land?
+
+### What happened happened to all the land?
+
+* If there’s less cropland in the US now than there was 70 years ago, what has taken its place?
+* Environmental Kuznets curve?
+* Urbanization during the same period means that more people were living and working in cities
+* Which effect dominates?
+  
+
+# Packages Used
+* dplyr      -->  Data manipulation grammar
+* tidyverse  -->  Provides core packages to use in data analysis
+* tidyr      -->  Tidies messy data
+* reshape    -->  Transforms data from short and wide to long and thin format or vice-versa
+* usmap      -->  U.S. map data frames of varying region types for mapping purposes
+* ggplot2    -->  Create graphics
+* plotly     -->  Create interactive graphs
+* gridExtra  -->  Arranges plots into grid format
+
+```{r Packages, include = FALSE}
+
+library(dplyr)    
+library(tidyverse)  
+library(tidyr)      
+library(reshape)    
+library(usmap)      
+library(ggplot2)    
+library(plotly)     
+library(gridExtra)
+library(readxl)
+```
+
+# Data Sources
+
+* Land Use Data was obtained from the United States Department of Agriculture (USDA)
+* Employment data was obtained from Federal Reserve Economic Data (FRED)
+
+```{r Data Cleaning Pt. 1, include = FALSE}
+
+########
+## LAND USE DATA
+########
+
+# create a function that negates %in% so that we can exclude records that don't match
+`%nin%` = Negate(`%in%`)
+
+# Import land use data from USDA file
+all_land_use <- read.csv('https://www.ers.usda.gov/webdocs/DataFiles/52096/MajorLandUse.csv?v=8645.3', stringsAsFactors = FALSE, header = TRUE) 
+
+# Get rid of Alaska and Hawaii since they have NAs:
+drop_states <- c("Alaska", "Hawaii")
+
+all_land_use <- all_land_use %>% filter(Region.or.State %nin% drop_states)
+
+# Remove unnecessary columns
+all_land_use <- all_land_use %>% 
+  dplyr::select(-c("SortOrder", "Region","Cropland.used.for.crops", "Cropland.idled", "Cropland.used.for.pasture", 
+                   "Forest.use.land.grazed", "Forest.use.land.not.grazed", "Land.in.rural.transportation.facilities",
+                   "Land.in.defense.and.industrial.areas", "Farmsteads..roads..and.miscellaneous.farmland"))
+  
+
+# Rename columns
+colnames(all_land_use) <- c('state', 'year', 'total_land', 'total_cropland', 'total_grassland', 'total_forest', 'total_special', 'parks_and_wildlife', 'total_urban_use', 'total_other')
+
+# Convert column contents to numeric values:
+all_land_use$total_land <- as.numeric(all_land_use$total_land)
+all_land_use$total_cropland <- as.numeric(all_land_use$total_cropland)
+all_land_use$total_forest <- as.numeric(all_land_use$total_forest)
+all_land_use$total_special <- as.numeric(all_land_use$total_special)
+all_land_use$parks_and_wildlife <- as.numeric(all_land_use$parks_and_wildlife)
+all_land_use$total_urban_use <- as.numeric(all_land_use$total_urban_use)
+all_land_use$total_other <- as.numeric(all_land_use$total_other)
+all_land_use$total_grassland <- as.numeric(all_land_use$total_grassland)
+
+#Sum cropland and grassland
+
+all_land_use$total_cropland = all_land_use$total_cropland + all_land_use$total_grassland
+all_land_use <- all_land_use %>% select(-c("total_grassland"))
+
+########
+# CREATE PERCENTAGE DATA FRAME
+########
+
+# Create DF that is percentage data:
+pct_all_land_use <- all_land_use %>% mutate(cropland_pct = (total_cropland/total_land)*100,
+                                            forest_pct = (total_forest/total_land)*100, 
+                                            special_pct = (total_special/total_land)*100, 
+                                            parks_wild_pct = (parks_and_wildlife/total_land)*100,
+                                            urban_pct = (total_urban_use/total_land)*100, 
+                                            other_pct = (total_other/total_land)*100)
+
+# Remove non percentages from pct_all_land_use DF:
+pct_all_land_use <- pct_all_land_use %>% select(-c('total_land', 'total_cropland', 'total_forest', 'total_special',
+                                                   'parks_and_wildlife', 'total_urban_use', 'total_other'))
+
+########
+# CREATE DF FOR REGIONS, STATES, US TOTAL:
+########
+
+# Create pct and acreage DF of all US total data:
+us_total_pct <- pct_all_land_use %>% subset(state == "U.S. total")  # US total data in pct
+us_total_acre <- all_land_use %>% subset(state == 'U.S. total')     # US total data in acres
+
+# Create pct and acreage DF of states:
+state_names <- c(state.name) #list created of state names in the USA
+state_pct <- subset(pct_all_land_use, state %in% state_names)       # State data in pct
+state_acre <- subset(all_land_use, state %in% state_names)          # State data in acres
+    # NOTE: This eliminates the 'lower 48' and Washington DC from all DFs ***
+
+# Create pct and acreage DF of regions:
+region_names <- c("Northeast", "Lake States", "Corn Belt", "Northern Plains", "Appalachian", "Southeast", "Delta States", 
+                  "Southern Plains", "Mountain", "Pacific")
+region_pct <- subset(pct_all_land_use, state %in% region_names)     # Region data in pct
+names(region_pct)[names(region_pct)== 'state'] <- 'region'          # Rename 'state' -> 'region'
+region_acre <- subset(all_land_use, state %in% region_names)        # Region data in acre
+names(region_acre)[names(region_acre)== 'state'] <- 'region'          # Rename 'state' -> 'region'
+
+
+#################
+#EMPLOYMENT DATA#
+#################
+
+PIE_DATA <- read_excel("PIE_DATA.xlsx")
+MajorLandUse <- read.csv("MajorLandUse.csv", stringsAsFactors = FALSE, header = TRUE)
+
+#And here we combine land and employment data
+
+Total_land_use <- MajorLandUse%>%
+  filter(SortOrder>=934&SortOrder<=945)%>%
+  select(-(1:3))
+
+combined_data <- Total_land_use%>%
+  left_join(PIE_DATA, by=c("Year"="YEAR"))
+
+combined_data$Total.cropland <- as.numeric(combined_data$Total.cropland)
+combined_data$Total.land <- as.numeric(combined_data$Total.land)
+
+labor_land_comb_data <- combined_data %>% mutate(ag_land_pct = (Total.cropland/Total.land)*100,
+                                                 ag_emp_pct = (Ag_workers/Labor_Force)*100) %>% 
+  select(Year, ag_land_pct, ag_emp_pct)
+
+```
+
+
+
+---
+
+---
+
+---
+---
+
+
+# Land Use Analysis and Visualization
+
+## U.S. Land Use Over Time 
+
+```{r New Variable Creation, echo= FALSE}
+#Create a new variable to make the line graphs that will plot land use over time
+line_graph_data <- all_land_use %>% select(state, year, total_land, total_cropland, 
+total_forest, total_forest, total_special,  parks_and_wildlife, total_urban_use, total_other) %>% filter(state =="U.S. total")
+```
+
+
+```{r Bar Graph of PCT Land Use 1945 vs 2012, echo=FALSE}
+
+# Define names for columns for the bar chart:
+bar_chart_titles <- c("State", "Year", "Cropland", "Forest", "Special Use", "Parks & Wildlife", "Urban", "Other")
+
+# Make df of US land use pct in 1945:
+Luse1945 <- subset(us_total_pct, year == 1945) # 
+  colnames(Luse1945) <- bar_chart_titles          # renames column names to better names for visualization
+  Luse1945 <- reshape::melt(Luse1945, id = c('State', 'Year'))  # transposes df shape
+  names(Luse1945)[names(Luse1945)== "value"] <- "use_1945"    # renames "value" --> use_1945
+  
+# Make df of US land use pct in 2012:  
+Luse2012 <- subset(us_total_pct, year == 2012)
+  colnames(Luse2012) <- bar_chart_titles          # renames column names to better names for visualization
+  Luse2012 <- reshape::melt(Luse2012, id = c('State', 'Year'))  # transpose df shape
+  names(Luse2012)[names(Luse2012)== "value"] <- "use_2012"    # renames "value" --> use_2012
+  
+  
+# Combine Luse1945 and Luse2012 into single DF:
+chris_bar_data <- merge(Luse1945, Luse2012, by = "variable") %>% select(c("variable", "use_1945", 'use_2012'))
+
+
+# Create the graph
+land_use_pct_1945_vs_2012 <- plot_ly(chris_bar_data, x = ~variable, y = ~use_1945, type = 'bar', name = '1945') %>%
+  add_trace(y = ~use_2012, name = '2012') %>%
+  layout(yaxis = list(title = 'Pecentage'), xaxis = list(title = ''),barmode = 'group')
+
+land_use_pct_1945_vs_2012
+
+```
+
+```{r US Land Use Over Time,echo= FALSE}
+#plot all land uses vs. year
+  ggplot(line_graph_data, aes(x = year)) + 
+  geom_line(aes(y = total_cropland), color = "greenyellow") + 
+  geom_line(aes(y = total_forest), color = "darkgreen") +
+  geom_line(aes(y = total_special), color = "purple2") +
+  geom_line(aes(y = parks_and_wildlife), color = "deepskyblue1") + 
+  geom_line(aes(y = total_urban_use), color = "grey42") +
+  geom_line(aes(y = total_other), color = "orange") + 
+  xlab("Year") + ylab("Land in Thousand Acres") +
+  # ggtitle("US Land Use Over Time")    # dont ned the title as it's already above the plotly chart
+  scale_x_continuous(breaks=c(1945, 1954, 1964, 1974, 1982, 1992, 2002, 2012))
+```
+
+
+```{r Cropland PCT DFs, message=FALSE, include= FALSE}
+
+pct_cropland <- state_pct  %>% select(state, year, cropland_pct) %>% arrange(year) #pct cropland, state, and year
+crop_1945_state <- state_pct %>% select(c("state", "year", "cropland_pct")) %>% subset(year == 1945) 
+crop_1964_state <- state_pct %>% select(c("state", "year", "cropland_pct")) %>% subset(year == 1964) 
+crop_1992_state <- state_pct %>% select(c("state", "year", "cropland_pct")) %>% subset(year == 1992)
+crop_2012_state <- state_pct %>% select(c("state", "year", "cropland_pct")) %>% subset(year == 2012) 
+
+```
+
+<br />  
+
+
+## Cropland 
+
+* Cropland is a combination of cropland and grassland as defined by the USDA, which are both used for agricultural use
+<br />
+
+```{r Cropland Over Time, echo = FALSE}
+#plot cropland vs. year
+ggplot(line_graph_data, aes(x = year, y = total_cropland)) + geom_line(color = "greenyellow") + geom_point() + ggtitle("Cropland Over Time") + xlab("Year") + ylab("Cropland in Thousand Acres") + scale_x_continuous(breaks=c(1945, 1954, 1964, 1974, 1982, 1992, 2002, 2012))
+```
+
+<br /> 
+
+```{r Cropland Maps, echo =FALSE,}
+
+# 1945 Cropland PCT Map:
+crop_map_1945 <- plot_usmap(exclude = c("HI", "AK"), data = crop_1945_state, values = "cropland_pct", color = 'black') +
+  scale_fill_continuous(low = 'white', high = 'green', name = 'Cropland %', label = scales::comma) +
+  theme(legend.position = 'right') +  labs(title = "1945")
+
+# 1964 Cropland PCT Map:
+crop_map_1964 <- plot_usmap(exclude = c("HI", "AK"), data = crop_1964_state, values = "cropland_pct", color = 'black') +
+  scale_fill_continuous(low = 'white', high = 'green', name = 'Cropland %', label = scales::comma) +
+  theme(legend.position = 'right') +  labs(title = "1964")
+
+# 1992 Cropland PCT Map:
+crop_map_1992 <- plot_usmap(exclude = c("HI", "AK"), data = crop_1992_state, values = "cropland_pct", color = 'black') +
+  scale_fill_continuous(low = 'white', high = 'green', name = 'Cropland %', label = scales::comma) +
+  theme(legend.position = 'right') +  labs(title = "1992")
+
+# 2012 Cropland PCT Map:
+crop_map_2012 <- plot_usmap(exclude = c("HI", "AK"), data = crop_2012_state, values = "cropland_pct", color = 'black') +
+  scale_fill_continuous(low = 'white', high = 'green', name = 'Cropland %', label = scales::comma) +
+  theme(legend.position = 'right') +  labs(title = "2012")
+
+grid.arrange(crop_map_1945, crop_map_1964, crop_map_1992, crop_map_2012, ncol=2, nrow=2, top= "U.S. Percentage Cropland 1945-2012")
+
+```
+
+<br /> 
+
+## Woodland
+
+
+```{r Woodland PCT DFs, message=FALSE, include= FALSE}
+
+## Combine forest_pct and parks_wild_pct to get total woodland percentage (woodlands_pct) in states:
+woodland_pct <- state_pct %>% mutate(woodlands_pct = forest_pct + parks_wild_pct) %>% 
+  select(state, year, woodlands_pct) %>% arrange(year)
+
+wood_1945_state <- woodland_pct %>% select(c("state", "year", "woodlands_pct")) %>% subset(year == 1945) 
+wood_1964_state <- woodland_pct %>% select(c("state", "year", "woodlands_pct")) %>% subset(year == 1964) 
+wood_1992_state <- woodland_pct %>% select(c("state", "year", "woodlands_pct")) %>% subset(year == 1992)
+wood_2012_state <- woodland_pct %>% select(c("state", "year", "woodlands_pct")) %>% subset(year == 2012) 
+
+```
+
+<br />
+
+```{r Forests Over Time, echo = FALSE}
+#plot forests vs. year
+ggplot(line_graph_data, aes(x = year, y = total_forest)) + geom_line(color = "darkgreen") + geom_point() + ggtitle("Woodland Over Time") + xlab("Year") + ylab("Woodland in Thousand Acres") + scale_x_continuous(breaks=c(1945, 1954, 1964, 1974, 1982, 1992, 2002, 2012))
+```
+
+```{r Woodland Maps, echo = FALSE}
+
+# 1945 Woodland PCT Map:
+wood_map_1945 <- plot_usmap(exclude = c("HI", "AK"), data = wood_1945_state, values = "woodlands_pct", color = 'black') +
+  scale_fill_continuous(low = 'white', high = 'brown', name = 'Woodland %', label = scales::comma) +
+  theme(legend.position = 'right') +  labs(title = "1945")
+
+# 1964 Woodland PCT Map:
+wood_map_1964 <- plot_usmap(exclude = c("HI", "AK"), data = wood_1964_state, values = "woodlands_pct", color = 'black') +
+  scale_fill_continuous(low = 'white', high = 'brown', name = 'Woodland %', label = scales::comma) +
+  theme(legend.position = 'right') +  labs(title = "1964")
+
+# 1992 Woodland PCT Map:
+wood_map_1992 <- plot_usmap(exclude = c("HI", "AK"), data = wood_1992_state, values = "woodlands_pct", color = 'black') +
+  scale_fill_continuous(low = 'white', high = 'brown', name = 'Woodland %', label = scales::comma) +
+  theme(legend.position = 'right') +  labs(title = "1992")
+
+# 2012 Woodland PCT Map:
+wood_map_2012 <- plot_usmap(exclude = c("HI", "AK"), data = wood_2012_state, values = "woodlands_pct", color = 'black') +
+  scale_fill_continuous(low = 'white', high = 'brown', name = 'Woodland %', label = scales::comma) +
+  theme(legend.position = 'right') +  labs(title = "2012")
+
+grid.arrange(wood_map_1945, wood_map_1964, wood_map_1992, wood_map_2012, ncol=2, nrow=2, top= "U.S. Percentage Woodland 1945-2012")
+
+```
+
+## Special Use and Urban Areas
+
+
+<br />
+
+```{r Special Areas Over Time, echo = FALSE}
+#plot special areas vs. year
+ggplot(line_graph_data, aes(x = year, y = total_special)) + geom_line(color = "purple2") + geom_point() + ggtitle("Special Areas Over Time") + xlab("Year") + ylab("Special Area in Thousand Acres") + scale_x_continuous(breaks=c(1945, 1954, 1964, 1974, 1982, 1992, 2002, 2012))
+```
+ <br />  
+```{r Urban Areas Over Time, echo = FALSE}
+#plot urban vs. year
+ggplot(line_graph_data, aes(x = year, y = total_urban_use)) + geom_line(color = "grey42") + geom_point() + ggtitle("Urban Areas Over Time") + xlab("Year") + ylab("Urban Area in Thousand Acres") + scale_x_continuous(breaks=c(1945, 1954, 1964, 1974, 1982, 1992, 2002, 2012))
+```
+
+---
+
+---
+
+---
+---
+
+
+# Employment Analysis and Visualization
+
+
+```{r Employment Pie Chart Visualizations, echo = FALSE}
+
+attach(PIE_DATA)
+# 1959 Employment Pie Chart: 
+
+dt1 <-data.frame(A=c(Ag_workers[1], Other[1], Unemployment[1]),B=c('Ag_workers','Other_workers','Unemployment'))
+myLabel = as.vector(dt1$B) 
+myLabel = paste(myLabel, "(",dt1$A,' ', round(dt1$A / sum(dt1$A) * 100, 2), "%)", sep = "") 
+tu1 <- ggplot(dt1, aes(x = "", y = A, fill = B)) +
+  geom_bar(stat = "identity", width = 1) + 
+  coord_polar(theta = "y") + 
+  labs(x = "", y = "", title = "1959") + 
+  theme(axis.ticks = element_blank()) + 
+  theme(legend.title = element_blank(), legend.position = "left") + 
+  scale_fill_discrete(breaks = dt1$B, labels = myLabel) + 
+  theme(axis.text.x = element_blank()) 
+
+
+
+# 1964 Employment Pie Chart:
+
+dt2 <-data.frame(A=c(Ag_workers[2], Other[2], Unemployment[2]), B=c('Ag_workers', 'Other_workers', 'Unemployment'))
+myLabel = as.vector(dt2$B) 
+myLabel = paste(myLabel, "(",dt2$A,' ', round(dt2$A / sum(dt2$A) * 100, 2), "%)", sep = "") 
+tu2<- ggplot(dt2, aes(x = "", y = A, fill = B)) +
+  geom_bar(stat = "identity", width = 1) + 
+  coord_polar(theta = "y") + 
+  labs(x = "", y = "", title = "1964") + 
+  theme(axis.ticks = element_blank()) + 
+  theme(legend.title = element_blank(), legend.position = "left") + 
+  scale_fill_discrete(breaks = dt2$B, labels = myLabel) + 
+  theme(axis.text.x = element_blank()) 
+
+
+
+# 1992 Employment Pie Chart:
+
+dt8 <- data.frame(A=c(Ag_workers[8], Other[8], Unemployment[8]),B=c('Ag_workers','Other_workers','Unemployment'))
+myLabel = as.vector(dt8$B) 
+myLabel = paste(myLabel, "(",dt8$A,' ', round(dt8$A / sum(dt8$A) * 100, 2), "%)", sep = "") 
+tu3<- ggplot(dt8, aes(x = "", y = A, fill = B)) +
+  geom_bar(stat = "identity", width = 1) + 
+  coord_polar(theta = "y") + 
+  labs(x = "", y = "", title = "1992") + 
+  theme(axis.ticks = element_blank()) + 
+  theme(legend.title = element_blank(), legend.position = "left") + 
+  scale_fill_discrete(breaks = dt8$B, labels = myLabel) + 
+  theme(axis.text.x = element_blank()) 
+
+
+
+# 2012 Employment Pie Chart:
+
+dt12 <-data.frame(A=c(Ag_workers[12], Other[12], Unemployment[12]),B=c('Ag_workers','Other_workers','Unemployment'))
+myLabel = as.vector(dt12$B) 
+myLabel = paste(myLabel, "(",dt12$A,' ', round(dt12$A / sum(dt12$A) * 100, 2), "%)", sep = "") 
+tu4<- ggplot(dt12, aes(x = "", y = A, fill = B)) +
+  geom_bar(stat = "identity", width = 1) + 
+  coord_polar(theta = "y") + 
+  labs(x = "", y = "", title = "2012") + 
+  theme(axis.ticks = element_blank()) + 
+  theme(legend.title = element_blank(), legend.position = "left") + 
+  scale_fill_discrete(breaks = dt12$B, labels = myLabel) + 
+  theme(axis.text.x = element_blank()) 
+
+detach(PIE_DATA)
+
+grid.arrange(tu1, tu2, tu3, tu4, ncol=2, nrow=2, top= "U.S. Employment Sector 1959-2012")
+
+```
+
+```{r Employment vs Land Use Visualization, echo= FALSE}
+
+
+
+land_labor_graph <- ggplot(labor_land_comb_data, aes(x = Year)) +
+  geom_line(aes(y = ag_land_pct), color = "darkred") +
+  geom_line(aes(y = ag_emp_pct), color = "steelblue") +
+  theme(legend.position = "right") +
+  labs(x = "Year", y = "Percentage", 
+       title = "U.S. Agricultural Employment and Land Use 1945 - 2012") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+    
+land_labor_graph
+```
+
+* Employment has shifted away from the agricultural sector over the last 70 years.
+
+
+
+
+
+
+---
+
+---
+
+---
+---
+
+
+# Findings
+
+
+This employment change happens to coincide with a fall in the land area used for agricultural purposes:
+```{r, echo=FALSE}
+cropland_pct <- as.integer(combined_data$Total.cropland)/as.integer(combined_data$Total.land)
+ag_worker_pct<- as.integer(combined_data$Ag_workers)/as.integer(combined_data$Employment)
+
+cov(cropland_pct,ag_worker_pct)
+```
+* The co-variance of the percentage of cropland use and percentage of ag_worker is 9.620744e-05,
+  which indicates a positive linear relationship between the two variables.
+
+## What happened to the land?
+```{r, echo=FALSE}
+late_land_use <- all_land_use %>%
+  filter(year > 1970)
+late_pct_land <- pct_all_land_use %>%
+  filter(year > 1970)
+```
+1. Correlation between croplands and forests is the strongest.
+  + If we plow a new field, odds are good we had to clear a few trees to do it.
+```{r, echo=FALSE}
+cor(pct_all_land_use$cropland_pct, pct_all_land_use$forest_pct)   #correlation between cropland and forests
+```
+
+2. Correlation between cropland and urban land also sizable.
+  + Suggests urban/suburban sprawl.
+  + Interesting: this relationship is weaker than that between farms and forests.
+```{r, echo=FALSE}
+cor(pct_all_land_use$cropland_pct, pct_all_land_use$urban_pct)    #correlation between cropland and urban land 
+```
+
+3. Correlation between urban land and forests, while negative, is very weak.
+  + Suggests increases in urban land happen more at the expense of farms than forests.
+```{r, echo=FALSE}
+cor(pct_all_land_use$urban_pct, pct_all_land_use$forest_pct)      #correlation between urban land and forests```
+```
+
+## Did the USDA's changing methodology affect our findings?
+```{r, echo=FALSE}
+cor(late_pct_land$cropland_pct, late_pct_land$forest_pct)   #correlation between cropland and forests
+cor(late_pct_land$urban_pct, late_pct_land$forest_pct)      #correlation between urban land and forests
+cor(late_pct_land$cropland_pct, late_pct_land$urban_pct)    #correlation between cropland and urban land 
+```
+As it turns out, no. If anything, measuring only the later years shows the predicted trends more conclusively.
+
+---
+---
+---
+---
+
+# Conclusions
+
+* Agricultural productivity of land and labor both increased over the last 70 years.
+* Land that used to have farms on it has mostly ceded to forests and cities.
+* Urbanization leads to some deforestation, but on balance less deforestation than agriculture.
+* Future researchers could produce a more rigorous model of land use relationships by examining multiple countries or studying the US by state.
