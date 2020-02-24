@@ -1,5 +1,6 @@
 ---
-title: "United States Land Use 1945 - 2012"
+title: "United States Land Use Analysis 1945 - 2012"
+purpose: ECON6010 Final Project -- Fall Semester 2019
 author: "Chris Bucher, Xiaoxiang Chen, Albert Gustafson, Brady Kraemer, and Sam Ransohoff"
 date: "11/27/2019"
 output: html_document
